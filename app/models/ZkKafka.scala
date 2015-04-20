@@ -52,42 +52,40 @@ object ZkKafka {
     maybeData
   }
 
-  def getSpoutTopology(root: String): Option[Topology] = {
+
+def getSpoutTopology(root: String): Topology = {
     // Fetch the spout root
-    zkClient.getChildren.forPath(makePath(applyBase(Seq(stormZkRoot, Some(root))))).asScala.flatMap({ spout =>
-      zkClient.getChildren.forPath(makePath(applyBase(Seq(stormZkRoot, Some(root))) ++ Seq(Some(spout)))).asScala.flatMap({ part =>
-        // Fetch the partitions so we can pick the first one
-        val path = makePath(applyBase(Seq(stormZkRoot, Some(root))) ++ Seq(Some(spout)) ++ Seq(Some(part)))
-        // Use the first partition's data to build up info about the topology
-        // Also, don't trust zk to have valid JSON, it may be null or something...
-        getZkData(path).map { zkData =>
-          val jsonState = new String(zkData)
-          val state = Json.parse(jsonState)
-          val topic = (state \ "topic").as[String]
-          val name  = (state \ "topology" \ "name").as[String]
-          Topology(name = name, topic = topic, spoutRoot = root)
-        }
-      })
-    }).headOption
+    //println(makePath(applyBase(Seq(stormZkRoot, Some(root)))))
+    val s = zkClient.getChildren.forPath(makePath(applyBase(Seq(stormZkRoot, Some(root)))))
+    // Fetch the partitions so we can pick the first one
+    //println(makePath(applyBase(Seq(stormZkRoot, Some(root))) ++ Seq(Some(s.get(0)))))
+    val parts = zkClient.getChildren.forPath(makePath(applyBase(Seq(stormZkRoot, Some(root))) ++ Seq(Some(s.get(0)))))
+    // Use the first partition's data to build up info about the topology
+    //println(makePath(applyBase(Seq(stormZkRoot, Some(root))) ++ Seq(Some(s.get(0))) ++ Seq(Some(parts.get(0)))))
+    //println(makePath(applyBase(Seq(stormZkRoot, Some(root))) ++ Seq(Some(s.get(0)))))
+    val jsonState = new String(zkClient.getData.forPath(makePath(applyBase(Seq(stormZkRoot, Some(root))) ++ Seq(Some(s.get(0))))))
+    val state = Json.parse(jsonState)
+    val topic = (state \ "topic").as[String]
+    val name = (state \ "topology" \ "name").as[String]
+    Topology(name = name, topic = topic, spoutRoot = root)
   }
 
   def getSpoutState(root: String, topic: String): Map[Int, Long] = {
     // There is basically nothing for error checking in here.
     val s = zkClient.getChildren.forPath(makePath(applyBase(Seq(stormZkRoot, Some(root)))))
-    // This gets us to the spout root
-    s.asScala.flatMap({ pts =>
-      // Fetch the partition information
+    s.asScala.map({ pts =>
+      //println(makePath(applyBase(Seq(stormZkRoot, Some(root))) ++ Seq(Some(pts))))
       val parts = zkClient.getChildren.forPath(makePath(applyBase(Seq(stormZkRoot, Some(root))) ++ Seq(Some(pts))))
-      // For each partition, fetch the offsets.
-      parts.asScala.map({ p =>
-        val jsonState = zkClient.getData.forPath(makePath(applyBase(Seq(stormZkRoot, Some(root))) ++ Seq(Some(pts)) ++ Seq(Some(p))))
-        val state = Json.parse(jsonState)
-        val offset = (state \ "offset").as[Long]
-        val partition = (state \ "partition").as[Long]
-        (partition.toInt, offset)
-      })
+      //println(makePath(applyBase(Seq(stormZkRoot, Some(root))) ++ Seq(Some(pts)) ++ Seq(Some(parts.get(0)))))
+      val jsonState = zkClient.getData.forPath(makePath(applyBase(Seq(stormZkRoot, Some(root))) ++ Seq(Some(pts))))
+      val state = Json.parse(jsonState)
+      val offset = (state \ "offset").as[Long]
+      val partition = (state \ "partition").as[Long]
+      (partition.toInt, offset)
     }).toMap
   }
+
+
 
   def getKafkaState(topic: String): Map[Int, Long] = {
     // Fetch info for each partition, given the topic
